@@ -34,7 +34,10 @@ app.use("/api/", rateLimit({
 
 /* ===================== DATABASE ===================== */
 mongoose.connect(MONGODB_URI)
-  .then(() => console.log("✅ MongoDB Connected"))
+  .then(() => {
+    console.log("✅ MongoDB Connected");
+    console.log("📦 Database:", mongoose.connection.name);
+  })
   .catch(err => {
     console.error("❌ MongoDB Error", err);
     process.exit(1);
