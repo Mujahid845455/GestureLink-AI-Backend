@@ -10,7 +10,7 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
 /* ===================== CONFIG ===================== */
-const PORT = process.env.PORT || 7000;
+const PORT = process.env.PORT;
 const JWT_SECRET = process.env.JWT_SECRET;
 const MONGODB_URI = process.env.MONGODB_URI;
 //jab frontend deploy kar doge tab  yaha par frontend addreess de dena 
