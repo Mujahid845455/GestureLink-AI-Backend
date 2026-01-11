@@ -1,5 +1,7 @@
 require("dotenv").config();
 const express = require("express");
+const app = express();
+app.set("trust proxy", 1);
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
@@ -7,7 +9,6 @@ const mongoose = require("mongoose");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 
-const app = express();
 /* ===================== CONFIG ===================== */
 const PORT = process.env.PORT || 7000;
 const JWT_SECRET = process.env.JWT_SECRET;
@@ -26,7 +27,9 @@ app.use(express.json({ limit: "10kb" }));
 
 app.use("/api/", rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false
 }));
 
 /* ===================== DATABASE ===================== */
