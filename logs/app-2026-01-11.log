@@ -1,0 +1,6 @@
+{"level":"info","message":"\n🚀 GestureLink Server Started\nPort: 7000\nEnv: production\nMongoDB: Connected\nRedis: Disabled\nSecurity: HIGH\n  ","timestamp":"2026-01-11T02:56:32.309Z"}
+{"level":"info","message":"✅ MongoDB Connected","timestamp":"2026-01-11T02:56:32.331Z"}
+{"level":"info","message":"\n🚀 GestureLink Server Started\nPort: 7000\nEnv: development\nMongoDB: Connected\nRedis: Disabled\nSecurity: HIGH\n  ","timestamp":"2026-01-11T03:51:43.930Z"}
+{"level":"info","message":"✅ MongoDB Connected","timestamp":"2026-01-11T03:51:43.988Z"}
+{"level":"info","message":"\n🚀 GestureLink Server Started\nPort: 7000\nEnv: development\nMongoDB: Connected\nRedis: Disabled\nSecurity: HIGH\n  ","timestamp":"2026-01-11T03:52:55.798Z"}
+{"level":"info","message":"✅ MongoDB Connected","timestamp":"2026-01-11T03:52:55.855Z"}
