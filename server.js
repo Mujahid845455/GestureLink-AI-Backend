@@ -77,32 +77,51 @@ app.get("/", (_, res) => {
 
 /* ---------- LOGIN ---------- */
 app.post("/api/auth/login", async (req, res) => {
-  const { identifier, password } = req.body;
+  try {
+    const { identifier, password } = req.body;
 
-  const user = await User.findOne({
-    $or: [{ username: identifier }, { email: identifier }]
-  }).select("+password");
-
-  if (!user) return res.status(401).json({ error: "Invalid credentials" });
-
-  const ok = await bcrypt.compare(password, user.password);
-  if (!ok) return res.status(401).json({ error: "Invalid credentials" });
-
-  const token = jwt.sign({ id: user._id }, JWT_SECRET, {
-    expiresIn: "24h"
-  });
-
-  res.json({
-    token,
-    user: {
-      id: user._id,
-      username: user.username,
-      email: user.email,
-      is_deaf: user.is_deaf,
-      userType: user.userType
+    if (!identifier || !password) {
+      return res.status(400).json({ error: "Identifier and password required" });
     }
-  });
+
+    const user = await User.findOne({
+      $or: [{ username: identifier }, { email: identifier }]
+    });
+
+    if (!user) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const isMatch = await bcrypt.compare(password, user.password);
+
+    if (!isMatch) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+
+    const token = jwt.sign(
+      { id: user._id },
+      process.env.JWT_SECRET,
+      { expiresIn: "24h" }
+    );
+
+    res.status(200).json({
+      success: true,
+      access_token: token,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        userType: user.userType,
+        is_deaf: user.is_deaf
+      }
+    });
+
+  } catch (err) {
+    console.error("Login error:", err);
+    res.status(500).json({ error: "Login failed" });
+  }
 });
+
 
 /* ===================== SIGNUP ===================== */
 app.post("/api/auth/signup", async (req, res) => {
