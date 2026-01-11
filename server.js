@@ -1,4 +1,4 @@
-
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
@@ -9,26 +9,26 @@ const rateLimit = require("express-rate-limit");
 
 const app = express();
 
-/* ===================== BASIC SECURITY ===================== */
+/* ===================== CONFIG ===================== */
+const PORT = process.env.PORT || 7000;
+const JWT_SECRET = process.env.JWT_SECRET;
+const MONGODB_URI = process.env.MONGODB_URI;
+const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
+
+/* ===================== SECURITY ===================== */
+app.use(helmet());
 app.use(cors({
-  origin: "http://localhost:5173",
+  origin: CLIENT_URL,
   credentials: true
 }));
 app.use(express.json({ limit: "10kb" }));
-app.use(helmet());
 
-/* ===================== RATE LIMIT ===================== */
 app.use("/api/", rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100
 }));
 
-/* ===================== CONFIG ===================== */
-const PORT = 7000;
-const JWT_SECRET = "mujahid";
-const MONGODB_URI = "mongodb://localhost:27017/GestureLink";
-
-/* ===================== DB ===================== */
+/* ===================== DATABASE ===================== */
 mongoose.connect(MONGODB_URI)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch(err => {
@@ -37,13 +37,21 @@ mongoose.connect(MONGODB_URI)
   });
 
 /* ===================== USER MODEL ===================== */
-const User = mongoose.model("User", new mongoose.Schema({
+const userSchema = new mongoose.Schema({
   username: { type: String, unique: true, required: true },
   email: { type: String, unique: true, required: true },
-  password: { type: String, required: true },
+  password: { type: String, required: true, select: false },
   is_deaf: Boolean,
   userType: String
-}, { timestamps: true }));
+}, { timestamps: true });
+
+userSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) return next();
+  this.password = await bcrypt.hash(this.password, 10);
+  next();
+});
+
+const User = mongoose.model("User", userSchema);
 
 /* ===================== AUTH MIDDLEWARE ===================== */
 const protect = (req, res, next) => {
@@ -58,29 +66,30 @@ const protect = (req, res, next) => {
   }
 };
 
-/* ===================== LOGIN ===================== */
+/* ===================== ROUTES ===================== */
+app.get("/", (_, res) => {
+  res.json({ status: "GestureLink API Running" });
+});
+
+/* ---------- LOGIN ---------- */
 app.post("/api/auth/login", async (req, res) => {
   const { identifier, password } = req.body;
 
   const user = await User.findOne({
     $or: [{ username: identifier }, { email: identifier }]
-  });
+  }).select("+password");
 
-  if (!user) {
-    return res.status(401).json({ error: "Invalid credentials" });
-  }
+  if (!user) return res.status(401).json({ error: "Invalid credentials" });
 
   const ok = await bcrypt.compare(password, user.password);
-  if (!ok) {
-    return res.status(401).json({ error: "Invalid credentials" });
-  }
+  if (!ok) return res.status(401).json({ error: "Invalid credentials" });
 
   const token = jwt.sign({ id: user._id }, JWT_SECRET, {
     expiresIn: "24h"
   });
 
   res.json({
-    access_token: token,
+    token,
     user: {
       id: user._id,
       username: user.username,
@@ -91,7 +100,7 @@ app.post("/api/auth/login", async (req, res) => {
   });
 });
 
-/* ===================== CURRENT USER ===================== */
+/* ---------- CURRENT USER ---------- */
 app.get("/api/auth/me", protect, async (req, res) => {
   const user = await User.findById(req.userId).select("-password");
   res.json({ user });
@@ -99,5 +108,5 @@ app.get("/api/auth/me", protect, async (req, res) => {
 
 /* ===================== START ===================== */
 app.listen(PORT, () => {
-  console.log(`🚀 Server running at http://localhost:${PORT}`);
+  console.log(`🚀 Server running on port ${PORT}`);
 });
