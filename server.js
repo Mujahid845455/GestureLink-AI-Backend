@@ -15,7 +15,7 @@ const JWT_SECRET = process.env.JWT_SECRET;
 const MONGODB_URI = process.env.MONGODB_URI;
 //jab frontend deploy kar doge tab  yaha par frontend addreess de dena 
 //ya .env file me daal dena
-const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
+const CLIENT_URL = process.env.CLIENT_URL;
 
 /* ===================== SECURITY ===================== */
 app.use(helmet());
