@@ -104,6 +104,55 @@ app.post("/api/auth/login", async (req, res) => {
   });
 });
 
+/* ===================== SIGNUP ===================== */
+app.post("/api/auth/signup", async (req, res) => {
+  try {
+    const { username, email, password, userType, is_deaf } = req.body;
+
+    if (!username || !email || !password) {
+      return res.status(400).json({ error: "All fields required" });
+    }
+
+    const exists = await User.findOne({
+      $or: [{ email }, { username }]
+    });
+
+    if (exists) {
+      return res.status(409).json({ error: "User already exists" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    const user = await User.create({
+      username,
+      email,
+      password: hashedPassword,
+      userType: userType || "deaf",
+      is_deaf: is_deaf ?? true
+    });
+
+    const token = jwt.sign({ id: user._id }, JWT_SECRET, {
+      expiresIn: "24h"
+    });
+
+    res.status(201).json({
+      success: true,
+      access_token: token,
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        userType: user.userType,
+        is_deaf: user.is_deaf
+      }
+    });
+
+  } catch (err) {
+    console.error("Signup error:", err);
+    res.status(500).json({ error: "Signup failed" });
+  }
+});
+
 /* ---------- CURRENT USER ---------- */
 app.get("/api/auth/me", protect, async (req, res) => {
   const user = await User.findById(req.userId).select("-password");
