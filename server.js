@@ -211,6 +211,8 @@ const jwt = require("jsonwebtoken");
 const mongoose = require("mongoose");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
+const multer = require("multer");
+const path = require("path");
 
 const http = require("http");
 const { Server } = require("socket.io");
@@ -221,9 +223,70 @@ const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/GestureLink";
 const CLIENT_URL = process.env.CLIENT_URL || "http://localhost:5173";
 
+/* ===================== MULTER CONFIGURATION ===================== */
+// Storage for files
+const fileStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/files/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+// Storage for images
+const imageStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, 'uploads/images/');
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+// File filter for images
+const imageFilter = (req, file, cb) => {
+  if (file.mimetype.startsWith('image/')) {
+    cb(null, true);
+  } else {
+    cb(new Error('Only image files are allowed!'), false);
+  }
+};
+
+// File size limits
+const uploadFile = multer({
+  storage: fileStorage,
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
+});
+
+const uploadImage = multer({
+  storage: imageStorage,
+  fileFilter: imageFilter,
+  limits: { fileSize: 5 * 1024 * 1024 } // 5MB
+});
+
 /* ===================== SECURITY ===================== */
 app.use(helmet());
-app.use(cors({ origin: CLIENT_URL, credentials: true }));
+const allowedOrigins = [
+  "http://localhost:5173",
+  "https://gesture-link-ai-68mc.vercel.app"
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      var msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  credentials: true
+}));
+
 app.use(express.json({ limit: "10kb" }));
 
 app.use(
@@ -297,12 +360,17 @@ const messageSchema = new mongoose.Schema(
     },
     message_type: {
       type: String,
-      enum: ["text", "sign", "audio"],
+      enum: ["text", "sign", "audio", "asl_image", "image", "file", "camera"],
       default: "text",
     },
     content: String,
     original_text: String,
     translated_text: String,
+    // Media fields
+    mediaUrl: { type: String }, // URL/path to uploaded file
+    fileName: { type: String }, // Original filename
+    fileSize: { type: Number }, // Size in bytes
+    mimeType: { type: String }, // MIME type (image/png, application/pdf, etc.)
     status: {
       type: String,
       enum: ["sent", "delivered", "read"],
@@ -313,6 +381,37 @@ const messageSchema = new mongoose.Schema(
 );
 
 const Message = mongoose.model("Message", messageSchema);
+
+/* ===================== LANDMARK MODEL ===================== */
+const coordSchema = new mongoose.Schema(
+  {
+    x: Number,
+    y: Number,
+    z: Number
+  },
+  { _id: false }
+);
+
+const landmarkSchema = new mongoose.Schema({
+  timestamp: { type: Date, default: Date.now },
+  pose: {
+    type: Map,
+    of: coordSchema,
+    default: {}
+  },
+  left_hand: {
+    type: Map,
+    of: coordSchema,
+    default: {}
+  },
+  right_hand: {
+    type: Map,
+    of: coordSchema,
+    default: {}
+  }
+});
+
+const Landmark = mongoose.model("Landmark", landmarkSchema);
 
 /* ===================== AUTH MIDDLEWARE ===================== */
 const protect = (req, res, next) => {
@@ -336,18 +435,25 @@ app.get("/", (req, res) => {
 /* ===================== AUTH ===================== */
 app.post("/api/auth/signup", async (req, res) => {
   try {
-    const { username, email, password, is_deaf } = req.body;
+    const { username, email, password, is_deaf, userType } = req.body;
 
     const exists = await User.findOne({
       $or: [{ email }, { username }],
     });
     if (exists) return res.status(409).json({ error: "User exists" });
 
+    // Determine is_deaf based on userType if not explicitly provided
+    let final_is_deaf = is_deaf;
+    if (final_is_deaf === undefined && userType) {
+      final_is_deaf = userType === 'deaf';
+    }
+
     const user = await User.create({
       username,
       email,
       password,
-      is_deaf,
+      is_deaf: final_is_deaf ?? true,
+      userType: userType || (final_is_deaf ? 'deaf' : 'hearing')
     });
 
     const token = jwt.sign({ id: user._id }, JWT_SECRET, { expiresIn: "24h" });
@@ -435,6 +541,54 @@ app.post("/api/conversations", protect, async (req, res) => {
   res.json(convo);
 });
 
+/* ===================== FILE UPLOADS ===================== */
+// Serve uploaded files
+app.use('/uploads', express.static('uploads'));
+
+// Upload file endpoint
+app.post("/api/upload/file", protect, uploadFile.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const fileUrl = `/uploads/files/${req.file.filename}`;
+
+    res.json({
+      success: true,
+      fileUrl,
+      fileName: req.file.originalname,
+      fileSize: req.file.size,
+      mimeType: req.file.mimetype
+    });
+  } catch (error) {
+    console.error("File upload error:", error);
+    res.status(500).json({ error: "File upload failed" });
+  }
+});
+
+// Upload image endpoint
+app.post("/api/upload/image", protect, uploadImage.single('image'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "No image uploaded" });
+    }
+
+    const imageUrl = `/uploads/images/${req.file.filename}`;
+
+    res.json({
+      success: true,
+      imageUrl,
+      fileName: req.file.originalname,
+      fileSize: req.file.size,
+      mimeType: req.file.mimetype
+    });
+  } catch (error) {
+    console.error("Image upload error:", error);
+    res.status(500).json({ error: "Image upload failed" });
+  }
+});
+
 /* ===================== MESSAGES ===================== */
 app.get("/api/messages/:conversationId", protect, async (req, res) => {
   const messages = await Message.find({
@@ -505,15 +659,23 @@ app.post("/api/messages", protect, async (req, res) => {
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: CLIENT_URL,
+    origin: allowedOrigins,
     credentials: true,
   },
 });
 
+
 const userSockets = new Map(); // userId -> socketId
 
 io.use(async (socket, next) => {
-  const token = socket.handshake.auth.token;
+  const { token, isCapture } = socket.handshake.auth;
+
+  // Allow capture module to connect without token in development
+  if (isCapture) {
+    socket.userId = "system_capture";
+    return next();
+  }
+
   if (!token) return next(new Error("Unauthorized"));
 
   try {
@@ -532,8 +694,10 @@ io.on("connection", async (socket) => {
   userSockets.set(userId, socket.id);
   socket.join(userId.toString()); // Join personal room
 
-  // Update online status in DB
-  await User.findByIdAndUpdate(userId, { is_online: true, socket_id: socket.id });
+  // Update online status in DB (Skip for system_capture)
+  if (userId !== "system_capture") {
+    await User.findByIdAndUpdate(userId, { is_online: true, socket_id: socket.id });
+  }
 
   // Broadcast to others
   socket.broadcast.emit("user_online", userId);
@@ -590,10 +754,41 @@ io.on("connection", async (socket) => {
     }
   });
 
+  socket.on("landmarks", async (data) => {
+    try {
+      // Save to MongoDB (Optional: can be disabled for performance if needed)
+      // const doc = new Landmark(data);
+      // await doc.save();
+
+      // Broadcast to all React clients
+      // We broadcast to everyone for now, but in the future could be specific rooms
+      io.emit("landmarks", data);
+    } catch (err) {
+      console.error("❌ Error broadcasting landmark:", err);
+    }
+  });
+
+  socket.on("sign", (data) => {
+    // Broadcast sign detection to all clients
+    io.emit("sign", data);
+  });
+
+  socket.on("start_tracking", () => {
+    console.log("🚀 Start Tracking command received from", userId);
+    io.emit("start_tracking");
+  });
+
+  socket.on("stop_tracking", () => {
+    console.log("🛑 Stop Tracking command received from", userId);
+    io.emit("stop_tracking");
+  });
+
   socket.on("disconnect", async () => {
     console.log(`🔴 User disconnected: ${userId}`);
     userSockets.delete(userId);
-    await User.findByIdAndUpdate(userId, { is_online: false, socket_id: null });
+    if (userId !== "system_capture") {
+      await User.findByIdAndUpdate(userId, { is_online: false, socket_id: null });
+    }
     socket.broadcast.emit("user_offline", userId);
   });
 });
